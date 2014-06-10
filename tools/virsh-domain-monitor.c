@@ -54,6 +54,59 @@ vshDomainIOErrorToString(int error)
     return str ? _(str) : _("unknown error");
 }
 
+/* extract domain's vnc listen address and port number */
+char *
+vshGetDomainVNC(vshControl *ctl, virDomainPtr dom)
+{
+    char *doc = NULL;
+    char *listen_addr = NULL;
+    int port = -1;
+    char *vnc = NULL;
+    xmlDocPtr xml = NULL;
+    xmlXPathContextPtr ctxt = NULL;
+
+    vnc = vshMalloc(ctl, sizeof(char) * 30);
+
+    /* return "-" if node is offline */
+    if (!virDomainIsActive(dom)) {
+        sprintf(vnc, "-");
+        goto cleanup;
+    }
+ 
+    if (!(doc = virDomainGetXMLDesc(dom, 0))) {
+      goto cleanup;
+    }
+
+    if (!(xml = virXMLParseStringCtxt(doc, _("(domain_definition)"), &ctxt))) {
+      goto cleanup;
+    }
+
+    /* get port and listen address */
+    virXPathInt("string(/domain/devices/graphics[@type='vnc']/@port)",
+      ctxt, &port);
+    listen_addr = virXPathString("string(/domain/devices/graphics"
+      "[@type='vnc']/@listen)", ctxt);
+
+    /* convert port to vnc display */
+    if (port >= 5900) {
+      port = port - 5900;
+    }
+
+    /* return "?" if something is wrong */
+    if ((listen_addr == NULL) || (port == -1)) {
+      sprintf(vnc, "?");
+    } else {
+      snprintf(vnc, 30, "%s:%d", listen_addr, port);
+    }
+
+    cleanup:
+      VIR_FREE(doc);
+      VIR_FREE(listen_addr);
+      xmlXPathFreeContext(ctxt);
+      xmlFreeDoc(xml);
+      return vnc;
+}
+
 /* extract description or title from domain xml */
 char *
 vshGetDomainDescription(vshControl *ctl, virDomainPtr dom, bool title,
@@ -1720,6 +1773,10 @@ static const vshCmdOptDef opts_list[] = {
      .type = VSH_OT_BOOL,
      .help = N_("show short domain description")
     },
+    {.name = "vnc",
+     .type = VSH_OT_BOOL,
+     .help = N_("show domain's vnc ports")
+    },
     {.name = NULL}
 };
 
@@ -1731,11 +1788,13 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
 {
     bool managed = vshCommandOptBool(cmd, "managed-save");
     bool optTitle = vshCommandOptBool(cmd, "title");
+    bool optVNC = vshCommandOptBool(cmd, "vnc");
     bool optTable = vshCommandOptBool(cmd, "table");
     bool optUUID = vshCommandOptBool(cmd, "uuid");
     bool optName = vshCommandOptBool(cmd, "name");
     size_t i;
     char *title;
+    char *vnc;
     char uuid[VIR_UUID_STRING_BUFLEN];
     int state;
     bool ret = false;
@@ -1790,6 +1849,11 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
                           _("Id"), _("Name"), _("State"), _("Title"),
                           "-----------------------------------------"
                           "-----------------------------------------");
+        else if (optVNC)
+            vshPrintExtra(ctl, " %-5s %-30s %-10s %-30s\n%s\n",
+                          _("Id"), _("Name"), _("State"), _("VNC"),
+                          "-----------------------------------------"
+                          "-----------------------------------------");
         else
             vshPrintExtra(ctl, " %-5s %-30s %s\n%s\n",
                           _("Id"), _("Name"), _("State"),
@@ -1821,6 +1885,16 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
                          title);
 
                 VIR_FREE(title);
+            } else if (optVNC) {
+                if (!(vnc = vshGetDomainVNC(ctl, dom)))
+                    goto cleanup;
+
+                vshPrint(ctl, " %-5s %-30s %-10s %-30s\n", id_buf,
+                         virDomainGetName(dom),
+                         state == -2 ? _("saved") : vshDomainStateToString(state),
+                         vnc);
+
+                VIR_FREE(vnc);
             } else {
                 vshPrint(ctl, " %-5s %-30s %s\n", id_buf,
                          virDomainGetName(dom),
