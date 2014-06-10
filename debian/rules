@@ -66,7 +66,7 @@ DEB_CONFIGURE_EXTRA_FLAGS :=     \
 	$(WITH_QEMU)		 \
 	--with-qemu-user=libvirt-qemu  \
 	--with-qemu-group=kvm    \
-        $(WITH_OPENVZ)		 \
+        --without-openvz	 \
 	--with-avahi             \
 	--with-sasl              \
 	--with-yajl              \
@@ -87,11 +87,11 @@ DEB_CONFIGURE_EXTRA_FLAGS :=     \
 	$(WITH_MACVTAP)		 \
 	$(WITH_NETWORK)		 \
 	$(WITH_NETCF)		 \
-	$(WITH_XEN)		 \
-	$(WITH_LXC)		 \
+	--without-xen		 \
+	--without-lxc		 \
 	$(WITH_AUDIT)		 \
 	--with-apparmor		 \
-	--with-vbox
+	--without-vbox
 
 DEB_COMPRESS_EXCLUDE = .o event-test hellolibvirt info1 suspend
 DEB_PYTHON_SETUP_CMD = /dev/null
