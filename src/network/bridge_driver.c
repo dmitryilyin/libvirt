@@ -977,6 +977,7 @@ networkDnsmasqConfContents(virNetworkObjPtr network,
             }
             virBufferAsprintf(&configbuf, "dhcp-range=%s,%s\n",
                               saddr, eaddr);
+            virBufferAddLit(&configbuf, "dhcp-sequential-ip\n");
             VIR_FREE(saddr);
             VIR_FREE(eaddr);
             nbleases += virSocketAddrGetRange(&ipdef->ranges[r].start,
