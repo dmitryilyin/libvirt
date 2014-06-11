@@ -66,13 +66,14 @@ vshGetDomainVNC(vshControl *ctl, virDomainPtr dom)
     xmlXPathContextPtr ctxt = NULL;
 
     vnc = vshMalloc(ctl, sizeof(char) * 30);
+    memset(vnc, '\0', 30);
 
     /* return "-" if node is offline */
     if (!virDomainIsActive(dom)) {
         sprintf(vnc, "-");
         goto cleanup;
     }
- 
+
     if (!(doc = virDomainGetXMLDesc(dom, 0))) {
       goto cleanup;
     }
@@ -105,6 +106,87 @@ vshGetDomainVNC(vshControl *ctl, virDomainPtr dom)
       xmlXPathFreeContext(ctxt);
       xmlFreeDoc(xml);
       return vnc;
+}
+
+#define MAC_LEN 17
+#define IP_LEN 15
+#define LINE_LEN 80
+#define NET_LEN 40
+#define DEV_LEN 16
+#define ARP_PROC "/proc/net/arp"
+
+/* extract domain's vnc listen address and port number */
+char *
+vshGetNetworkData(vshControl *ctl, virDomainPtr dom)
+{
+    char *doc = NULL;
+    char *net = NULL;
+    char *mac = NULL;
+    char *ip  = NULL;
+
+    FILE *f;
+    xmlDocPtr xml = NULL;
+    xmlXPathContextPtr ctxt = NULL;
+
+    net = vshMalloc(ctl, sizeof(char) * NET_LEN);
+    memset(net, '\0', NET_LEN);
+
+    if (!(doc = virDomainGetXMLDesc(dom, 0))) {
+        goto cleanup;
+    }
+
+    if (!(xml = virXMLParseStringCtxt(doc, _("(domain_definition)"), &ctxt))) {
+        goto cleanup;
+    }
+
+    mac = virXPathString("string(/domain/devices/interface[@type='network'][1]/mac/@address)", ctxt);
+
+    if (mac != NULL) {
+        char arp_ip[IP_LEN + 1];
+        char arp_mac[MAC_LEN + 1];
+        char dev[DEV_LEN + 1];
+        char *line = NULL;
+        unsigned int flags;
+        FILE *file;
+
+        if ((file = fopen(ARP_PROC, "r")) != NULL) {
+            line = vshMalloc(ctl, sizeof(char) * (LINE_LEN + 1) );
+            while (fgets(line, LINE_LEN, file)) {
+                if (sscanf(line, "%15s %*s 0x%X %17s %*s %16s", arp_ip, &flags, arp_mac, dev) != 4) continue;
+                if ((strlen(arp_mac) != MAC_LEN) || (strcmp(arp_mac, "00:00:00:00:00:00") == 0)) continue;
+                if (flags == 0) continue;
+                if (strcmp(arp_mac, mac) == 0) {
+                    ip = vshMalloc(ctl, sizeof(char) * (IP_LEN + 1) );
+                    strncpy(ip, arp_ip, (IP_LEN + 1) );
+                }
+            }
+            fclose(file);
+        }
+
+        VIR_FREE(line);
+    }
+
+    if (ip == NULL) {
+        ip = vshMalloc(ctl, sizeof(char) * 2);
+        memset(ip, '\0', 2);
+        strcpy(ip, "?");
+    }
+
+    if (mac == NULL) {
+        mac = vshMalloc(ctl, sizeof(char) * 2);
+        memset(mac, '\0', 2);
+        strcpy(mac, "?");
+    }
+
+    snprintf(net, NET_LEN, "%s %s", mac, ip);
+
+    cleanup:
+        VIR_FREE(doc);
+        VIR_FREE(mac);
+        VIR_FREE(ip);
+        xmlXPathFreeContext(ctxt);
+        xmlFreeDoc(xml);
+        return net;
 }
 
 /* extract description or title from domain xml */
@@ -1777,6 +1859,10 @@ static const vshCmdOptDef opts_list[] = {
      .type = VSH_OT_BOOL,
      .help = N_("show domain's vnc ports")
     },
+    {.name = "net",
+     .type = VSH_OT_BOOL,
+     .help = N_("show domain's network data")
+    },
     {.name = NULL}
 };
 
@@ -1792,9 +1878,11 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
     bool optTable = vshCommandOptBool(cmd, "table");
     bool optUUID = vshCommandOptBool(cmd, "uuid");
     bool optName = vshCommandOptBool(cmd, "name");
+    bool optNet = vshCommandOptBool(cmd, "net");
     size_t i;
-    char *title;
-    char *vnc;
+    char *title = NULL;
+    char *vnc = NULL;
+    char *net = NULL;
     char uuid[VIR_UUID_STRING_BUFLEN];
     int state;
     bool ret = false;
@@ -1854,6 +1942,11 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
                           _("Id"), _("Name"), _("State"), _("VNC"),
                           "-----------------------------------------"
                           "-----------------------------------------");
+        else if (optNet)
+            vshPrintExtra(ctl, " %-5s %-30s %-10s %-40s\n%s\n",
+                          _("Id"), _("Name"), _("State"), _("Net"),
+                          "-----------------------------------------"
+                          "-----------------------------------------");
         else
             vshPrintExtra(ctl, " %-5s %-30s %s\n%s\n",
                           _("Id"), _("Name"), _("State"),
@@ -1895,6 +1988,16 @@ cmdList(vshControl *ctl, const vshCmd *cmd)
                          vnc);
 
                 VIR_FREE(vnc);
+            } else if (optNet) {
+                if (!(net = vshGetNetworkData(ctl, dom)))
+                    goto cleanup;
+
+                vshPrint(ctl, " %-5s %-30s %-10s %-40s\n", id_buf,
+                         virDomainGetName(dom),
+                         state == -2 ? _("saved") : vshDomainStateToString(state),
+                         net);
+
+                VIR_FREE(net);
             } else {
                 vshPrint(ctl, " %-5s %-30s %s\n", id_buf,
                          virDomainGetName(dom),
