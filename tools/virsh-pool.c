@@ -47,8 +47,8 @@ vshCommandOptPoolBy(vshControl *ctl, const vshCmd *cmd, const char *optname,
     const char *n = NULL;
     virCheckFlags(VSH_BYUUID | VSH_BYNAME, NULL);
 
-    if (vshCommandOptStringReq(ctl, cmd, optname, &n) < 0)
-        return NULL;
+    if (vshCommandOptString(cmd, optname, &n) <= 0)
+      n = "default";
 
     vshDebug(ctl, VSH_ERR_INFO, "%s: found option <%s>: %s\n",
              cmd->def->name, optname, n);

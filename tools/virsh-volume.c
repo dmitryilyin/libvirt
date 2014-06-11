@@ -1312,7 +1312,6 @@ static const vshCmdInfo info_vol_list[] = {
 static const vshCmdOptDef opts_vol_list[] = {
     {.name = "pool",
      .type = VSH_OT_DATA,
-     .flags = VSH_OFLAG_REQ,
      .help = N_("pool name or uuid")
     },
     {.name = "details",
